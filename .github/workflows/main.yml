@@ -56,7 +56,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install --break-system-packages gdown || pip install gdown
-          # Скачиваем официальные бинарники lpunpack и lpmake последних версий
           mkdir -p bin
           curl -L -o bin/lpunpack https://github.com
           curl -L -o bin/lpmake https://github.com
@@ -78,16 +77,26 @@ jobs:
           elif [[ "$PRESET" == "Samsung A15 (128/256GB)" ]]; then
             gdown --quiet --output stock_firmware.tar '12FoeBkPDHddj4lzd-T6pjHRQ8Ey3c2U8'
           elif [ -n "$URL" ]; then
-            if [[ $URL == *"mega.nz"* ]]; then 
-              megadl -o stock_firmware.tar "$URL"
-            elif [[ $URL == *"://google.com"* || $URL == *"://google.com"* || $URL == *"google.com"* ]]; then
-              FILE_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
+            # Проверяем, есть ли в ссылке ID файла Google Диска (длинная строка из ~33 символов)
+            FILE_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
+            
+            if [ -n "$FILE_ID" ]; then
+              echo "Detected Google Drive ID: $FILE_ID"
               gdown --quiet --output stock_firmware.tar "$FILE_ID"
+            elif [[ $URL == *"mega.nz"* ]]; then 
+              megadl -o stock_firmware.tar "$URL"
             else 
               curl -L -A "Mozilla/5.0" -o stock_firmware.tar "$URL"
             fi
           else
             echo "::error::No device preset or URL selected." && exit 1
+          fi
+
+          # Паника, если файл не скачался или вместо прошивки скачался мелкий HTML-текст ошибки
+          if [ ! -s "stock_firmware.tar" ] || [ $(stat -c%s "stock_firmware.tar") -lt 1000000 ]; then 
+            echo "✗ Error: Firmware download failed or file is too small."
+            echo "Размер скачанного фрагмента: $(stat -c%s "stock_firmware.tar" 2>/dev/null) байт"
+            exit 1
           fi
 
           echo "==> Extracting super.img.lz4..."
@@ -96,14 +105,11 @@ jobs:
 
           echo "==> Decompressing LZ4..."
           SUPER_LZ4=$(ls *super.img*.lz4 | head -n 1)
-          lz4 -d "$SUPER_LZ4" stock_super_sparse.img
+          lz4 -d "$SUPER_LZ4" stock_super.img
           rm "$SUPER_LZ4"
 
-          echo "==> Converting sparse image to raw image..."
-          if simg2img stock_super_sparse.img stock_super.img 2>/dev/null; then
-            rm stock_super_sparse.img
-          else
-            mv stock_super_sparse.img stock_super.img
+          if simg2img stock_super.img stock_super.raw 2>/dev/null; then
+            mv stock_super.raw stock_super.img
           fi
 
       - name: Download and Extract Custom System
@@ -112,8 +118,8 @@ jobs:
           echo "==> Downloading Custom ROM..."
           ROM_URL=$(echo "${{ github.event.inputs.custom_system_url }}" | tr -d '[:space:]"')
           
-          if [[ $ROM_URL == *"://google.com"* || $ROM_URL == *"://google.com"* || $ROM_URL == *"google.com"* ]]; then
-              ROM_ID=$(echo "$ROM_URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
+          ROM_ID=$(echo "$ROM_URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
+          if [ -n "$ROM_ID" ]; then
               gdown --quiet --output custom_rom_package "$ROM_ID"
           elif [[ $ROM_URL == *"pixeldrain.com"* ]]; then
               curl -L -A "Mozilla/5.0" -o custom_rom_package "$ROM_URL"
@@ -143,7 +149,6 @@ jobs:
               mv "$IMG_FILE" custom_system.img
           fi
           
-          # Если кастомная система в sparse-формате, конвертируем в raw
           if simg2img custom_system.img custom_system.raw 2>/dev/null; then
             mv custom_system.raw custom_system.img
           fi
@@ -157,19 +162,14 @@ jobs:
           lpunpack stock_super.img extracted/
           
           echo "==> Replacing system partition with custom ROM..."
-          # Заменяем оригинальный образ системы на ваш кастомный ROM
           cp -f custom_system.img extracted/system.img
           
           echo "==> Calculating partition sizes..."
-          # Автоматически считываем оригинальный размер супер-образа
           SUPER_SIZE=$(stat -c%s stock_super.img)
           
-          # Генерируем команду сборки динамических разделов lpmake
           OPTIONS="--metadata-size 65536 --super-name super --output repacked_super.img"
           OPTIONS="$OPTIONS --device super:$SUPER_SIZE"
           
-          # Автоматически добавляем все извлеченные разделы (vendor, product, odm и т.д.) в новый образ
-          SUM_SIZES=0
           PART_ARGS=""
           IMAGE_ARGS=""
           
@@ -177,13 +177,11 @@ jobs:
             part_name=$(basename "$file" .img)
             part_size=$(stat -c%s "$file")
             
-            # Округляем размеры разделов до кратности 4096 байт
             part_size=$(( (part_size + 4095) / 4096 * 4096 ))
             truncate -s $part_size "$file"
             
             PART_ARGS="$PART_ARGS --partition ${part_name}:readonly:${part_size}:main"
             IMAGE_ARGS="$IMAGE_ARGS --image ${part_name}=$file"
-            SUM_SIZES=$((SUM_SIZES + part_size))
           done
           
           OPTIONS="$OPTIONS --metadata-slots 2 --group main:$SUPER_SIZE"
