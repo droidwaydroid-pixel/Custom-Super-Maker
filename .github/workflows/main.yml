@@ -120,6 +120,14 @@ jobs:
           lz4 -d "$SUPER_LZ4" stock_super_sparse.img
           rm "$SUPER_LZ4"
 
+          echo "==> Converting sparse image to raw image format..."
+          if simg2img stock_super_sparse.img stock_super_raw.img 2>/dev/null; then
+            mv stock_super_raw.img stock_super_sparse.img
+            echo "Successfully converted to raw format."
+          else
+            echo "Image is already in raw format, skipping conversion."
+          fi
+
       - name: Download and Extract Custom System
         run: |
           cd work
