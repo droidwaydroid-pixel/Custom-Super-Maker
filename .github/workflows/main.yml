@@ -102,9 +102,12 @@ jobs:
           if [ ! -s "stock_firmware.zip" ]; then echo "✗ Error: Firmware download failed." && exit 1; fi
 
           echo "==> Extracting AP file..."
-          AP_FILENAME=$(unzip -l "stock_firmware.zip" | grep -i -o -E "AP_.*\.tar\.md5" | head -n 1)
-          unzip -o -j "stock_firmware.zip" "$AP_FILENAME"
-          rm "stock_firmware.zip"
+          # Переименовываем файл в его настоящее расширение, так как это чистый tar
+          mv "stock_firmware.zip" "stock_firmware.tar"
+          # Утилита tar сама извлечет все разделы (super.img и т.д.)
+          tar -xf "stock_firmware.tar"
+          rm "stock_firmware.tar"
+
 
           echo "==> Extracting super.img.lz4..."
           tar -xvf "$AP_FILENAME" --wildcards '*super.img*.lz4'
