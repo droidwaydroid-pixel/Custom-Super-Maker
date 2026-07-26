@@ -82,7 +82,7 @@ jobs:
         run: |
           cd work
           PRESET="${{ github.event.inputs.device_preset }}"
-          URL="${{ github.event.inputs.stock_firmware_url }}"
+          URL=$(echo "${{ github.event.inputs.stock_firmware_url }}" | tr -d '[:space:]"')
 
           echo "==> Downloading Base Firmware..."
           if [[ "$PRESET" == "Samsung A04s (64GB)" ]]; then
@@ -94,12 +94,13 @@ jobs:
           elif [ -n "$URL" ]; then
             if [[ $URL == *"mega.nz"* ]]; then 
               megadl -o stock_firmware.tar "$URL"
-            elif [[ $URL == *"://google.com"* || $URL == *"://google.com"* ]]; then
-              # Автоматически извлекаем ID из ссылки Google Диска и скачиваем через gdown
+            elif [[ $URL == *"://google.com"* || $URL == *"://google.com"* || $URL == *"google.com"* ]]; then
+              # Универсальное извлечение ID, включая ссылки формата drive_link
               FILE_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
+              echo "Detected Google Drive ID: $FILE_ID"
               gdown --quiet --output stock_firmware.tar "$FILE_ID"
             else 
-              # Для Pixeldrain и других прямых ссылок
+              # Для Pixeldrain и прямых ссылок
               curl -L -A "Mozilla/5.0" -o stock_firmware.tar "$URL"
             fi
           else
@@ -107,13 +108,14 @@ jobs:
           fi
 
           # Проверка на успешность скачивания и размер файла
-          if [ ! -s "stock_firmware.tar" ] || [ $(stat -c%s "stock_firmware.tar") -lt 10000 ]; then 
+          if [ ! -s "stock_firmware.tar" ] || [ $(stat -c%s "stock_firmware.tar") -lt 1000000 ]; then 
             echo "✗ Error: Firmware download failed or file is too small."
+            echo "Размер скачанного фрагмента: $(stat -c%s "stock_firmware.tar" 2>/dev/null) байт"
             exit 1
           fi
 
           echo "==> Extracting super.img.lz4 directly from AP tar archive..."
-          # Извлекаем super.img.lz4 прямо из скачанного tar-файла без промежуточных шагов
+          # Извлекаем super.img.lz4 прямо из скачанного tar-файла
           tar -xvf "stock_firmware.tar" --wildcards '*super.img*.lz4' || tar -xvf "stock_firmware.tar" '*super.img*.lz4'
           rm "stock_firmware.tar"
 
@@ -127,9 +129,9 @@ jobs:
         run: |
           cd work
           echo "==> Downloading Custom ROM..."
-          ROM_URL="${{ github.event.inputs.custom_system_url }}"
+          ROM_URL=$(echo "${{ github.event.inputs.custom_system_url }}" | tr -d '[:space:]"')
           
-          if [[ $ROM_URL == *"://google.com"* || $ROM_URL == *"://google.com"* ]]; then
+          if [[ $ROM_URL == *"://google.com"* || $ROM_URL == *"://google.com"* || $ROM_URL == *"google.com"* ]]; then
               ROM_ID=$(echo "$ROM_URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
               gdown --quiet --output custom_rom_package "$ROM_ID"
           elif [[ $ROM_URL == *"pixeldrain.com"* ]]; then
@@ -196,7 +198,6 @@ jobs:
             mv custom_system.raw custom_system.img
           fi
 
-          # Увеличение размера образа на 100MB для брендинга и APK
           if file custom_system.img | grep -qi "ext"; then
             echo "==> Detected ext filesystem. Expanding custom_system.img by 100MB..."
             truncate -s +100M custom_system.img
