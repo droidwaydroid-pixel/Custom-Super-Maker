@@ -95,27 +95,22 @@ jobs:
             if [[ $URL == *"mega.nz"* ]]; then 
               megadl -o stock_firmware.tar "$URL"
             elif [[ $URL == *"://google.com"* || $URL == *"://google.com"* || $URL == *"google.com"* ]]; then
-              # Универсальное извлечение ID, включая ссылки формата drive_link
               FILE_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
               echo "Detected Google Drive ID: $FILE_ID"
               gdown --quiet --output stock_firmware.tar "$FILE_ID"
             else 
-              # Для Pixeldrain и прямых ссылок
               curl -L -A "Mozilla/5.0" -o stock_firmware.tar "$URL"
             fi
           else
             echo "::error::No device preset or URL selected." && exit 1
           fi
 
-          # Проверка на успешность скачивания и размер файла
           if [ ! -s "stock_firmware.tar" ] || [ $(stat -c%s "stock_firmware.tar") -lt 1000000 ]; then 
             echo "✗ Error: Firmware download failed or file is too small."
-            echo "Размер скачанного фрагмента: $(stat -c%s "stock_firmware.tar" 2>/dev/null) байт"
             exit 1
           fi
 
           echo "==> Extracting super.img.lz4 directly from AP tar archive..."
-          # Извлекаем super.img.lz4 прямо из скачанного tar-файла
           tar -xvf "stock_firmware.tar" --wildcards '*super.img*.lz4' || tar -xvf "stock_firmware.tar" '*super.img*.lz4'
           rm "stock_firmware.tar"
 
@@ -190,28 +185,6 @@ jobs:
           cd work
           echo "==> Downloading ASRControl APK..."
           wget -q -O ASRControl.apk "https://github.com" || echo "Warning: APK download failed."
-
-      - name: System Branding (APK, pfetch, build.prop)
-        run: |
-          cd work
-          if simg2img custom_system.img custom_system.raw 2>/dev/null; then
-            mv custom_system.raw custom_system.img
-          fi
-
-          if file custom_system.img | grep -qi "ext"; then
-            echo "==> Detected ext filesystem. Expanding custom_system.img by 100MB..."
-            truncate -s +100M custom_system.img
-            sudo e2fsck -f -y custom_system.img || true
-            sudo resize2fs custom_system.img
-          else
-            echo "==> custom_system.img is not an ext filesystem, skipping resize."
-          fi
-
-          chmod +x ../scripts/brand_system.sh
-          sudo ../scripts/brand_system.sh \
-            --image custom_system.img \
-            --apk ASRControl.apk \
-            --gsi-name "${{ env.ROM_NAME }}"
 
       - name: Run Repack
         run: |
