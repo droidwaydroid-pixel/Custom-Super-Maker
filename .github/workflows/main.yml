@@ -88,18 +88,28 @@ jobs:
 
           echo "==> Downloading Base Firmware..."
           if [[ "$PRESET" == "Samsung A04s (64GB)" ]]; then
-            gdown --quiet --output stock_firmware.zip '1C9GtYTn1EZ4sQN7qfJeWN6gxDj_WbgY-'
+            gdown --quiet --output stock_firmware.tar '1C9GtYTn1EZ4sQN7qfJeWN6gxDj_WbgY-'
           elif [[ "$PRESET" == "Samsung A12s A127F" ]]; then
-            gdown --quiet --output stock_firmware.zip '1J38ATKSjoVN2yqVc_GF6JD9GKaPuhK2g'
+            gdown --quiet --output stock_firmware.tar '1J38ATKSjoVN2yqVc_GF6JD9GKaPuhK2g'
           elif [[ "$PRESET" == "Samsung A15 (128/256GB)" ]]; then
-            gdown --quiet --output stock_firmware.zip '12FoeBkPDHddj4lzd-T6pjHRQ8Ey3c2U8'
+            gdown --quiet --output stock_firmware.tar '12FoeBkPDHddj4lzd-T6pjHRQ8Ey3c2U8'
           elif [ -n "$URL" ]; then
-            if [[ $URL == *"mega.nz"* ]]; then megadl -o stock_firmware.zip "$URL"; else wget -q --content-disposition -O stock_firmware.zip "$URL"; fi
+            if [[ $URL == *"mega.nz"* ]]; then 
+              megadl -o stock_firmware.tar "$URL"
+            else 
+              # Используем curl вместо wget, чтобы скачивание с Pixeldrain прошло успешно
+              curl -L -o stock_firmware.tar "$URL"
+            fi
           else
             echo "::error::No device preset or URL selected." && exit 1
           fi
 
-          if [ ! -s "stock_firmware.zip" ]; then echo "✗ Error: Firmware download failed." && exit 1; fi
+          if [ ! -s "stock_firmware.tar" ]; then echo "✗ Error: Firmware download failed." && exit 1; fi
+
+          echo "==> Extracting AP file..."
+          # Распаковываем чистый tar-файл напрямую
+          tar -xf "stock_firmware.tar"
+          rm "stock_firmware.tar"
 
           echo "==> Extracting AP file..."
           # Переименовываем файл в его настоящее расширение, так как это чистый tar
