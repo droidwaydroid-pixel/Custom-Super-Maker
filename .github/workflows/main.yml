@@ -71,7 +71,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install gdown
-          curl -fsSL https://get.docker.com -o get-docker.sh
+          curl -fsSL https://get-docker.com -o get-docker.sh
           sudo sh get-docker.sh
 
       - name: Verify and Prepare Script
@@ -96,35 +96,32 @@ jobs:
           elif [ -n "$URL" ]; then
             if [[ $URL == *"mega.nz"* ]]; then 
               megadl -o stock_firmware.tar "$URL"
+            elif [[ $URL == *"://google.com"* || $URL == *"://google.com"* ]]; then
+              # Автоматически извлекаем ID из ссылки Google Диска и скачиваем через gdown
+              FILE_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
+              gdown --quiet --output stock_firmware.tar "$FILE_ID"
             else 
-              # Используем curl вместо wget, чтобы скачивание с Pixeldrain прошло успешно
-              curl -L -o stock_firmware.tar "$URL"
+              # Для Pixeldrain и других прямых ссылок
+              curl -L -A "Mozilla/5.0" -o stock_firmware.tar "$URL"
             fi
           else
             echo "::error::No device preset or URL selected." && exit 1
           fi
 
-          if [ ! -s "stock_firmware.tar" ]; then echo "✗ Error: Firmware download failed." && exit 1; fi
+          # Проверка на успешность скачивания и размер файла
+          if [ ! -s "stock_firmware.tar" ] || [ $(stat -c%s "stock_firmware.tar") -lt 10000 ]; then 
+            echo "✗ Error: Firmware download failed or file is too small."
+            exit 1
+          fi
 
-          echo "==> Extracting AP file..."
-          # Распаковываем чистый tar-файл напрямую
-          tar -xf "stock_firmware.tar"
+          echo "==> Extracting super.img.lz4 directly from AP tar archive..."
+          # Извлекаем super.img.lz4 прямо из скачанного tar-файла без промежуточных шагов
+          tar -xvf "stock_firmware.tar" --wildcards '*super.img*.lz4' || tar -xvf "stock_firmware.tar" '*super.img*.lz4'
           rm "stock_firmware.tar"
-
-          echo "==> Extracting AP file..."
-          # Переименовываем файл в его настоящее расширение, так как это чистый tar
-          mv "stock_firmware.zip" "stock_firmware.tar"
-          # Утилита tar сама извлечет все разделы (super.img и т.д.)
-          tar -xf "stock_firmware.tar"
-          rm "stock_firmware.tar"
-
-
-          echo "==> Extracting super.img.lz4..."
-          tar -xvf "$AP_FILENAME" --wildcards '*super.img*.lz4'
-          rm "$AP_FILENAME"
 
           echo "==> Decompressing LZ4..."
           SUPER_LZ4=$(ls *super.img*.lz4 | head -n 1)
+          if [ -z "$SUPER_LZ4" ]; then echo "✗ Error: super.img.lz4 not found!" && exit 1; fi
           lz4 -d "$SUPER_LZ4" stock_super_sparse.img
           rm "$SUPER_LZ4"
 
@@ -133,7 +130,15 @@ jobs:
           cd work
           echo "==> Downloading Custom ROM..."
           ROM_URL="${{ github.event.inputs.custom_system_url }}"
-          wget -O custom_rom_package "$ROM_URL"
+          
+          if [[ $ROM_URL == *"://google.com"* || $ROM_URL == *"://google.com"* ]]; then
+              ROM_ID=$(echo "$ROM_URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
+              gdown --quiet --output custom_rom_package "$ROM_ID"
+          elif [[ $ROM_URL == *"pixeldrain.com"* ]]; then
+              curl -L -A "Mozilla/5.0" -o custom_rom_package "$ROM_URL"
+          else
+              wget -O custom_rom_package "$ROM_URL"
+          fi
 
           CLEAN_URL="${ROM_URL%%\?*}"
           ROM_NAME=$(basename "$CLEAN_URL")
@@ -184,7 +189,7 @@ jobs:
         run: |
           cd work
           echo "==> Downloading ASRControl APK..."
-          wget -q -O ASRControl.apk "https://github.com/minhmc2007/minhmc2007/releases/download/v0.0.1/app-debug.apk" || echo "Warning: APK download failed."
+          wget -q -O ASRControl.apk "https://github.com" || echo "Warning: APK download failed."
 
       - name: System Branding (APK, pfetch, build.prop)
         run: |
@@ -193,7 +198,7 @@ jobs:
             mv custom_system.raw custom_system.img
           fi
 
-          # Expand image size by 100MB to allow adding branding files and APKs
+          # Увеличение размера образа на 100MB для брендинга и APK
           if file custom_system.img | grep -qi "ext"; then
             echo "==> Detected ext filesystem. Expanding custom_system.img by 100MB..."
             truncate -s +100M custom_system.img
@@ -224,24 +229,19 @@ jobs:
         id: package
         run: |
           cd work
-          if [ ! -f "repacked_super.img" ]; then echo "✗ Error: Repack failed, image not found." && exit 1; fi
-          mv repacked_super.img super.img
-          TAR_NAME="repacked_super_$(date +%Y%m%d).tar"
-          tar -cvf "$TAR_NAME" super.img
-          echo "tar_path=work/$TAR_NAME" >> $GITHUB_OUTPUT
+          if [ ! -f "repacked_super.img" ]; then 
+            echo "✗ Error: Repack failed, output image not found." && exit 1
+          fi
+          echo "==> Compressing repacked_super.img to tar..."
+          tar -cvf repacked_super.tar repacked_super.img
+          echo "==> Compression finished successfully."
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: repacked-super-image
-          path: ${{ steps.package.outputs.tar_path }}
-          retention-days: 7
-
-      - name: Upload Release
-        if: github.event.inputs.upload_to_release == 'true'
+      - name: Upload to Release
+        if: ${{ github.event.inputs.upload_to_release == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_id }}
-          files: ${{ steps.package.outputs.tar_path }}
+          tag_name: "repack-${{ github.run_id }}"
+          name: "Super Repack Build #${{ github.run_number }}"
+          files: work/repacked_super.tar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
