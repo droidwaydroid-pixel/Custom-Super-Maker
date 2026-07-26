@@ -26,26 +26,11 @@ on:
         required: true
         type: boolean
         default: false
-      empty_product:
-        description: 'Use empty product.img (-e)'
-        required: false
-        type: boolean
-        default: false
-      empty_system_ext:
-        description: 'Use empty system_ext.img (-x)'
-        required: false
-        type: boolean
-        default: false
       silent_mode:
-        description: 'Silent mode (-s)'
+        description: 'Silent mode'
         required: false
         type: boolean
         default: true
-      writable:
-        description: 'Make partitions writable (-w)'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   repack-super:
@@ -71,15 +56,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install --break-system-packages gdown || pip install gdown
-
-      - name: Verify and Prepare Script
-        run: |
-          if [ ! -f "./scripts/repacksuper.sh" ]; then echo "✗ Error: repacksuper.sh not found" && exit 1; fi
-          chmod +x ./scripts/repacksuper.sh
-          mkdir -p work
+          # Скачиваем официальные бинарники lpunpack и lpmake последних версий
+          mkdir -p bin
+          curl -L -o bin/lpunpack https://github.com
+          curl -L -o bin/lpmake https://github.com
+          chmod +x bin/*
+          echo "$(pwd)/bin" >> $GITHUB_PATH
 
       - name: Download Base Firmware
         run: |
+          mkdir -p work
           cd work
           PRESET="${{ github.event.inputs.device_preset }}"
           URL=$(echo "${{ github.event.inputs.stock_firmware_url }}" | tr -d '[:space:]"')
@@ -96,7 +82,6 @@ jobs:
               megadl -o stock_firmware.tar "$URL"
             elif [[ $URL == *"://google.com"* || $URL == *"://google.com"* || $URL == *"google.com"* ]]; then
               FILE_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
-              echo "Detected Google Drive ID: $FILE_ID"
               gdown --quiet --output stock_firmware.tar "$FILE_ID"
             else 
               curl -L -A "Mozilla/5.0" -o stock_firmware.tar "$URL"
@@ -105,28 +90,20 @@ jobs:
             echo "::error::No device preset or URL selected." && exit 1
           fi
 
-          if [ ! -s "stock_firmware.tar" ] || [ $(stat -c%s "stock_firmware.tar") -lt 1000000 ]; then 
-            echo "✗ Error: Firmware download failed or file is too small."
-            exit 1
-          fi
-
-          echo "==> Extracting super.img.lz4 directly from AP tar archive..."
+          echo "==> Extracting super.img.lz4..."
           tar -xvf "stock_firmware.tar" --wildcards '*super.img*.lz4' || tar -xvf "stock_firmware.tar" '*super.img*.lz4'
           rm "stock_firmware.tar"
 
           echo "==> Decompressing LZ4..."
           SUPER_LZ4=$(ls *super.img*.lz4 | head -n 1)
-          if [ -z "$SUPER_LZ4" ]; then echo "✗ Error: super.img.lz4 not found!" && exit 1; fi
           lz4 -d "$SUPER_LZ4" stock_super_sparse.img
           rm "$SUPER_LZ4"
 
-          echo "==> Converting sparse image to raw image format..."
-          # Переводим в чистый raw формат без лишней sparse-конвертации
-          if simg2img stock_super_sparse.img stock_super_raw.img 2>/dev/null; then
-            mv stock_super_raw.img stock_super_sparse.img
-            echo "Successfully restored to raw image format."
+          echo "==> Converting sparse image to raw image..."
+          if simg2img stock_super_sparse.img stock_super.img 2>/dev/null; then
+            rm stock_super_sparse.img
           else
-            echo "Image is already in raw format."
+            mv stock_super_sparse.img stock_super.img
           fi
 
       - name: Download and Extract Custom System
@@ -146,81 +123,86 @@ jobs:
 
           CLEAN_URL="${ROM_URL%%\?*}"
           ROM_NAME=$(basename "$CLEAN_URL")
-          echo "Detected ROM Name: $ROM_NAME"
           echo "ROM_NAME=$ROM_NAME" >> $GITHUB_ENV
 
           FILE_DESC=$(file -b custom_rom_package)
-          echo "Detected File Type: $FILE_DESC"
-
           if [[ "$FILE_DESC" == *"XZ compressed"* ]]; then
-              mv custom_rom_package c.img.xz
-              unxz c.img.xz
-              mv c.img custom_system.img
-
+              mv custom_rom_package c.img.xz && unxz c.img.xz && mv c.img custom_system.img
           elif [[ "$FILE_DESC" == *"Zip archive"* ]]; then
               unzip -o custom_rom_package
-
           elif [[ "$FILE_DESC" == *"7-zip archive"* ]]; then
               7z x custom_rom_package
-
           elif [[ "$FILE_DESC" == *"gzip compressed"* ]]; then
-              mv custom_rom_package c.img.gz
-              gzip -d c.img.gz
-              mv c.img custom_system.img
-
+              mv custom_rom_package c.img.gz && gzip -d c.img.gz && mv c.img custom_system.img
           else
-              echo "Assuming raw image..."
               mv custom_rom_package custom_system.img
           fi
 
           if [ ! -f "custom_system.img" ]; then
-              echo "==> Searching for extracted .img file..."
-              IMG_FILE=$(find . -type f -name "*.img" ! -name "stock_super_sparse.img" -printf "%s\t%p\n" | sort -n | tail -1 | cut -f2-)
-
-              if [ -z "$IMG_FILE" ]; then
-                  echo "✗ Error: No .img file found after extraction!"
-                  ls -R
-                  exit 1
-              fi
-
-              echo "==> Found image: $IMG_FILE"
+              IMG_FILE=$(find . -type f -name "*.img" ! -name "stock_super.img" -printf "%s\t%p\n" | sort -n | tail -1 | cut -f2-)
               mv "$IMG_FILE" custom_system.img
           fi
+          
+          # Если кастомная система в sparse-формате, конвертируем в raw
+          if simg2img custom_system.img custom_system.raw 2>/dev/null; then
+            mv custom_system.raw custom_system.img
+          fi
 
-          echo "==> Custom system image prepared: custom_system.img"
-
-      - name: Download ASRControl APK
+      - name: Modern Native Repack
         run: |
           cd work
-          echo "==> Downloading ASRControl APK..."
-          wget -q -O ASRControl.apk "https://github.com" || echo "Warning: APK download failed."
-
-      - name: Run Repack
-        run: |
-          FLAGS="-r $(pwd)/work"
-          if [ "${{ github.event.inputs.silent_mode }}" == "true" ]; then FLAGS="$FLAGS -s"; fi
-          if [ "${{ github.event.inputs.empty_product }}" == "true" ]; then FLAGS="$FLAGS -e"; fi
-          if [ "${{ github.event.inputs.empty_system_ext }}" == "true" ]; then FLAGS="$FLAGS -x"; fi
-          if [ "${{ github.event.inputs.writable }}" == "true" ]; then FLAGS="$FLAGS -w"; fi
-
-          echo "Modifying repacksuper.sh to bypass strict format checks..."
-          # Отключаем аварийный выход при неизвестном формате, так как утилиты на сервере справятся сами
-          sed -i 's/exit 1/# exit 1/g' ./scripts/repacksuper.sh
-          sed -i 's/echo "Unknown source file format. Exiting..."/echo "Bypassing format check..."/g' ./scripts/repacksuper.sh
-
-          echo "Running with flags: $FLAGS"
-          bash ./scripts/repacksuper.sh $FLAGS work/stock_super_sparse.img work/custom_system.img work/repacked_super.img
+          mkdir -p extracted
+          
+          echo "==> Unpacking original Samsung super.img..."
+          lpunpack stock_super.img extracted/
+          
+          echo "==> Replacing system partition with custom ROM..."
+          # Заменяем оригинальный образ системы на ваш кастомный ROM
+          cp -f custom_system.img extracted/system.img
+          
+          echo "==> Calculating partition sizes..."
+          # Автоматически считываем оригинальный размер супер-образа
+          SUPER_SIZE=$(stat -c%s stock_super.img)
+          
+          # Генерируем команду сборки динамических разделов lpmake
+          OPTIONS="--metadata-size 65536 --super-name super --output repacked_super.img"
+          OPTIONS="$OPTIONS --device super:$SUPER_SIZE"
+          
+          # Автоматически добавляем все извлеченные разделы (vendor, product, odm и т.д.) в новый образ
+          SUM_SIZES=0
+          PART_ARGS=""
+          IMAGE_ARGS=""
+          
+          for file in extracted/*.img; do
+            part_name=$(basename "$file" .img)
+            part_size=$(stat -c%s "$file")
+            
+            # Округляем размеры разделов до кратности 4096 байт
+            part_size=$(( (part_size + 4095) / 4096 * 4096 ))
+            truncate -s $part_size "$file"
+            
+            PART_ARGS="$PART_ARGS --partition ${part_name}:readonly:${part_size}:main"
+            IMAGE_ARGS="$IMAGE_ARGS --image ${part_name}=$file"
+            SUM_SIZES=$((SUM_SIZES + part_size))
+          done
+          
+          OPTIONS="$OPTIONS --metadata-slots 2 --group main:$SUPER_SIZE"
+          
+          echo "==> Building new super.img via lpmake..."
+          lpmake $OPTIONS $PART_ARGS $IMAGE_ARGS
+          
+          echo "==> Converting final image back to compressed Sparse format..."
+          img2simg repacked_super.img repacked_super_sparse.img
+          mv repacked_super_sparse.img repacked_super.img
 
       - name: Create Tarball
-        id: package
         run: |
           cd work
           if [ ! -f "repacked_super.img" ]; then 
             echo "✗ Error: Repack failed, output image not found." && exit 1
           fi
-          echo "==> Compressing repacked_super.img to tar..."
+          echo "==> Compressing repacked_super.img to tar for Odin..."
           tar -cvf repacked_super.tar repacked_super.img
-          echo "==> Compression finished successfully."
 
       - name: Upload to Release
         if: ${{ github.event.inputs.upload_to_release == 'true' }}
