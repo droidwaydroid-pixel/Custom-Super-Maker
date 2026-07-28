@@ -58,16 +58,14 @@ jobs:
           pip install --break-system-packages gdown || pip install gdown
           
           mkdir -p bin
-          echo "==> Downloading tools from primary mirror..."
-          # Попытка №1: скачиваем с альтернативного сайта архива утилит
-          curl -L --retry 3 --retry-delay 2 -o bin/lpunpack https://thesc1ence.com || true
-          curl -L --retry 3 --retry-delay 2 -o bin/lpmake https://thesc1ence.com || true
+          echo "==> Downloading lpunpack and lpmake from direct API mirror..."
+          curl -L -A "Mozilla/5.0" -o bin/lpunpack https://pixeldrain.com
+          curl -L -A "Mozilla/5.0" -o bin/lpmake https://pixeldrain.com
           
-          # Проверяем, успешна ли попытка. Если нет — забираем чистые бинарники из резервного API Pixeldrain
-          if [ ! -s "bin/lpunpack" ] || grep -q "<!DOCTYPE" bin/lpunpack; then
-            echo "Primary mirror down or unreachable. Fetching from secondary Pixeldrain API mirror..."
-            curl -L -A "Mozilla/5.0" -o bin/lpunpack https://pixeldrain.com || wget -O bin/lpunpack https://pixeldrain.com
-            curl -L -A "Mozilla/5.0" -o bin/lpmake https://pixeldrain.com || wget -O bin/lpmake https://pixeldrain.com
+          if grep -q "<!DOCTYPE" bin/lpunpack || [ ! -s "bin/lpunpack" ]; then
+            echo "Fallback to alternative download method..."
+            wget -O bin/lpunpack https://pixeldrain.com
+            wget -O bin/lpmake https://pixeldrain.com
           fi
           
           chmod +x bin/*
