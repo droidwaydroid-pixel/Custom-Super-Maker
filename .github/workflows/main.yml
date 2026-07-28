@@ -54,9 +54,17 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # Устанавливаем официальные пакеты Android-инструментов Ubuntu, куда уже входят lpunpack и lpmake
-          sudo apt-get install -y android-sdk-libsparse-utils android-sdk-ext4-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
+          # Устанавливаем базовые утилиты без проблемного пакета ext4-utils
+          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install --break-system-packages gdown || pip install gdown
+          
+          # Скачиваем гарантированно чистые Linux-бинарники lpunpack и lpmake из стабильного архивного репозитория
+          mkdir -p bin
+          curl -L -o bin/lpunpack https://githubusercontent.com
+          curl -L -o bin/lpmake https://githubusercontent.com
+          
+          chmod +x bin/*
+          echo "$(pwd)/bin" >> $GITHUB_PATH
 
       - name: Verify and Prepare Script
         run: |
