@@ -54,30 +54,9 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # Устанавливаем базовые пакеты, компилятор g++ и библиотеки для сборки инструментов разметки
-          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip build-essential zlib1g-dev libgtest-dev
+          # Устанавливаем официальные пакеты, где lpunpack и lpmake уже идут в комплекте нативно
+          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install --break-system-packages gdown || pip install gdown
-          
-          # Клонируем официальные исходники инструментов Android Dynamic Partitions и компилируем на месте
-          mkdir -p bin
-          echo "==> Compiling lpunpack and lpmake from clean source..."
-          git clone --depth=1 https://github.com tools_src
-          cd tools_src/linux/bin
-          # Если компиляция из исходников занимает много времени, используем надежное зеркало от самого GitHub raw
-          cd ../../..
-          curl -L -A "Mozilla/5.0" -o bin/lpunpack https://githubusercontent.com
-          curl -L -A "Mozilla/5.0" -o bin/lpmake https://githubusercontent.com
-          
-          # Жесткая проверка: если githubusercontent отдал HTML, вытаскиваем бинарники из клонированного репозитория
-          if grep -q "<!DOCTYPE" bin/lpunpack || [ ! -s "bin/lpunpack" ]; then
-            echo "Network mirror failed. Copying pre-compiled binaries from cloned git repo..."
-            cp -f tools_src/linux/bin/lpunpack bin/lpunpack
-            cp -f tools_src/linux/bin/lpmake bin/lpmake
-          fi
-          
-          rm -rf tools_src
-          chmod +x bin/*
-          echo "$(pwd)/bin" >> $GITHUB_PATH
 
       - name: Verify and Prepare Script
         run: |
