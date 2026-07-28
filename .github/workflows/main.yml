@@ -54,13 +54,15 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
+          # Устанавливаем официальные пакеты Android-инструментов Ubuntu, куда уже входят lpunpack и lpmake
+          sudo apt-get install -y android-sdk-libsparse-utils android-sdk-ext4-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install --break-system-packages gdown || pip install gdown
-          mkdir -p bin
-          curl -L -o bin/lpunpack https://github.com
-          curl -L -o bin/lpmake https://github.com
-          chmod +x bin/*
-          echo "$(pwd)/bin" >> $GITHUB_PATH
+
+      - name: Verify and Prepare Script
+        run: |
+          if [ ! -f "./scripts/repacksuper.sh" ]; then echo "✗ Error: repacksuper.sh not found" && exit 1; fi
+          chmod +x ./scripts/repacksuper.sh
+          mkdir -p work
 
       - name: Download Base Firmware
         run: |
@@ -77,7 +79,6 @@ jobs:
           elif [[ "$PRESET" == "Samsung A15 (128/256GB)" ]]; then
             gdown --quiet --output stock_firmware.tar '12FoeBkPDHddj4lzd-T6pjHRQ8Ey3c2U8'
           elif [ -n "$URL" ]; then
-            # Проверяем, есть ли в ссылке ID файла Google Диска (длинная строка из ~33 символов)
             FILE_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+|(?<=id=)[^&]+' | head -n 1)
             
             if [ -n "$FILE_ID" ]; then
@@ -92,10 +93,8 @@ jobs:
             echo "::error::No device preset or URL selected." && exit 1
           fi
 
-          # Паника, если файл не скачался или вместо прошивки скачался мелкий HTML-текст ошибки
           if [ ! -s "stock_firmware.tar" ] || [ $(stat -c%s "stock_firmware.tar") -lt 1000000 ]; then 
             echo "✗ Error: Firmware download failed or file is too small."
-            echo "Размер скачанного фрагмента: $(stat -c%s "stock_firmware.tar" 2>/dev/null) байт"
             exit 1
           fi
 
