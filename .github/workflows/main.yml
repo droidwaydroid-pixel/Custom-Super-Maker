@@ -54,27 +54,8 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # Встановлюємо всі базові утиліти для розпакування та прошивки
-          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip git build-essential
+          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install --break-system-packages gdown || pip install gdown
-          
-          echo "==> Fetching stable and clean lpmake and lpunpack tools..."
-          # Завантажуємо офіційні Linux x86_64 утиліти розмітки з надійного сховища Android Tools
-          mkdir -p bin
-          wget -q -O bin/lpunpack "https://pixeldrain.com" || curl -L -o bin/lpunpack "https://pixeldrain.com"
-          wget -q -O bin/lpmake "https://pixeldrain.com" || curl -L -o bin/lpmake "https://pixeldrain.com"
-          
-          # Якщо Pixeldrain недоступний, використовуємо резервне дзеркало
-          if grep -q "<!DOCTYPE" bin/lpunpack || [ ! -s "bin/lpunpack" ]; then
-            echo "Switching to backup mirror..."
-            curl -L -o bin/lpunpack "https://github.com"
-            curl -L -o bin/lpmake "https://github.com"
-          fi
-          
-          chmod +x bin/*
-          sudo cp bin/lpunpack /usr/local/bin/lpunpack
-          sudo cp bin/lpmake /usr/local/bin/lpmake
-          echo "$(pwd)/bin" >> $GITHUB_PATH
 
       - name: Verify and Prepare Script
         run: |
@@ -175,8 +156,9 @@ jobs:
           cd work
           mkdir -p extracted
           
-          echo "==> Unpacking original Samsung super.img..."
-          lpunpack stock_super.img extracted/
+          echo "==> Unpacking original Samsung super.img via Docker Container..."
+          # Запускаємо lpunpack всередині офіційного контейнера без будь-яких скачувань бінарників
+          docker run --rm -v $(pwd):/data althack/android-tools lpunpack /data/stock_super.img /data/extracted/
           
           echo "==> Replacing system partition with custom ROM..."
           cp -f custom_system.img extracted/system.img
@@ -184,27 +166,29 @@ jobs:
           echo "==> Calculating partition sizes..."
           SUPER_SIZE=$(stat -c%s stock_super.img)
           
-          OPTIONS="--metadata-size 65536 --super-name super --output repacked_super.img"
-          OPTIONS="$OPTIONS --device super:$SUPER_SIZE"
-          
+          # Округляємо розміри файлів та готуємо аргументи для збірки
           PART_ARGS=""
           IMAGE_ARGS=""
-          
           for file in extracted/*.img; do
             part_name=$(basename "$file" .img)
             part_size=$(stat -c%s "$file")
-            
             part_size=$(( (part_size + 4095) / 4096 * 4096 ))
             truncate -s $part_size "$file"
             
             PART_ARGS="$PART_ARGS --partition ${part_name}:readonly:${part_size}:main"
-            IMAGE_ARGS="$IMAGE_ARGS --image ${part_name}=$file"
+            IMAGE_ARGS="$IMAGE_ARGS --image ${part_name}=/data/extracted/${part_name}.img"
           done
           
-          OPTIONS="$OPTIONS --metadata-slots 2 --group main:$SUPER_SIZE"
-          
-          echo "==> Building new super.img via lpmake..."
-          lpmake $OPTIONS $PART_ARGS $IMAGE_ARGS
+          echo "==> Building new super.img via lpmake inside Docker Container..."
+          # Збираємо фінальний образ через Docker контейнер lpmake
+          docker run --rm -v $(pwd):/data althack/android-tools lpmake \
+            --metadata-size 65536 \
+            --super-name super \
+            --output /data/repacked_super.img \
+            --device super:$SUPER_SIZE \
+            --metadata-slots 2 \
+            --group main:$SUPER_SIZE \
+            $PART_ARGS $IMAGE_ARGS
           
           echo "==> Converting final image back to compressed Sparse format..."
           img2simg repacked_super.img repacked_super_sparse.img
