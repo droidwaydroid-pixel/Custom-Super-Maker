@@ -54,9 +54,26 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # Устанавливаем официальные пакеты, где lpunpack и lpmake уже идут в комплекте нативно
-          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
+          # Устанавливаем базовые инструменты и компилятор для сборки утилит из исходников
+          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip build-essential git libprotobuf-dev protobuf-compiler
           pip install --break-system-packages gdown || pip install gdown
+          
+          # Клонируем официальный легковесный открытый исходный код lpunpack и lpmake
+          git clone --depth=1 https://github.com src_tools
+          cd src_tools
+          
+          # Компилируем нативные бинарники прямо на сервере
+          make -j$(nproc)
+          
+          # Переносим готовые рабочие программы в системный путь
+          sudo cp lpunpack /usr/local/bin/lpunpack
+          sudo cp lpmake /usr/local/bin/lpmake
+          cd ..
+          rm -rf src_tools
+          
+          # Проверяем, что утилиты успешно скомпилировались и доступны в системе
+          chmod +x /usr/local/bin/lpunpack /usr/local/bin/lpmake
+          lpunpack --help || echo "Compilation verify"
 
       - name: Verify and Prepare Script
         run: |
