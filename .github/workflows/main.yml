@@ -54,14 +54,21 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # Устанавливаем базовые утилиты без проблемного пакета ext4-utils
           sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip
           pip install --break-system-packages gdown || pip install gdown
           
-          # Скачиваем гарантированно чистые Linux-бинарники lpunpack и lpmake из стабильного архивного репозитория
           mkdir -p bin
-          curl -L -o bin/lpunpack https://githubusercontent.com
-          curl -L -o bin/lpmake https://githubusercontent.com
+          echo "==> Downloading tools from primary mirror..."
+          # Попытка №1: скачиваем с альтернативного сайта архива утилит
+          curl -L --retry 3 --retry-delay 2 -o bin/lpunpack https://thesc1ence.com || true
+          curl -L --retry 3 --retry-delay 2 -o bin/lpmake https://thesc1ence.com || true
+          
+          # Проверяем, успешна ли попытка. Если нет — забираем чистые бинарники из резервного API Pixeldrain
+          if [ ! -s "bin/lpunpack" ] || grep -q "<!DOCTYPE" bin/lpunpack; then
+            echo "Primary mirror down or unreachable. Fetching from secondary Pixeldrain API mirror..."
+            curl -L -A "Mozilla/5.0" -o bin/lpunpack https://pixeldrain.com || wget -O bin/lpunpack https://pixeldrain.com
+            curl -L -A "Mozilla/5.0" -o bin/lpmake https://pixeldrain.com || wget -O bin/lpmake https://pixeldrain.com
+          fi
           
           chmod +x bin/*
           echo "$(pwd)/bin" >> $GITHUB_PATH
