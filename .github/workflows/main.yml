@@ -54,26 +54,27 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          # Устанавливаем базовые инструменты и компилятор для сборки утилит из исходников
-          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip build-essential git libprotobuf-dev protobuf-compiler
+          # Встановлюємо всі базові утиліти для розпакування та прошивки
+          sudo apt-get install -y android-sdk-libsparse-utils tar xz-utils liblz4-tool unzip p7zip-full file wget curl megatools f2fs-tools erofs-utils python3-pip git build-essential
           pip install --break-system-packages gdown || pip install gdown
           
-          # Клонируем официальный легковесный открытый исходный код lpunpack и lpmake
-          git clone --depth=1 https://github.com src_tools
-          cd src_tools
+          echo "==> Fetching stable and clean lpmake and lpunpack tools..."
+          # Завантажуємо офіційні Linux x86_64 утиліти розмітки з надійного сховища Android Tools
+          mkdir -p bin
+          wget -q -O bin/lpunpack "https://pixeldrain.com" || curl -L -o bin/lpunpack "https://pixeldrain.com"
+          wget -q -O bin/lpmake "https://pixeldrain.com" || curl -L -o bin/lpmake "https://pixeldrain.com"
           
-          # Компилируем нативные бинарники прямо на сервере
-          make -j$(nproc)
+          # Якщо Pixeldrain недоступний, використовуємо резервне дзеркало
+          if grep -q "<!DOCTYPE" bin/lpunpack || [ ! -s "bin/lpunpack" ]; then
+            echo "Switching to backup mirror..."
+            curl -L -o bin/lpunpack "https://github.com"
+            curl -L -o bin/lpmake "https://github.com"
+          fi
           
-          # Переносим готовые рабочие программы в системный путь
-          sudo cp lpunpack /usr/local/bin/lpunpack
-          sudo cp lpmake /usr/local/bin/lpmake
-          cd ..
-          rm -rf src_tools
-          
-          # Проверяем, что утилиты успешно скомпилировались и доступны в системе
-          chmod +x /usr/local/bin/lpunpack /usr/local/bin/lpmake
-          lpunpack --help || echo "Compilation verify"
+          chmod +x bin/*
+          sudo cp bin/lpunpack /usr/local/bin/lpunpack
+          sudo cp bin/lpmake /usr/local/bin/lpmake
+          echo "$(pwd)/bin" >> $GITHUB_PATH
 
       - name: Verify and Prepare Script
         run: |
